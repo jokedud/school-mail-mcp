@@ -3,7 +3,8 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
 type ToolArgs = Record<string, unknown>;
-type MailSummary = { uid: number; subject?: string; from?: string[]; date?: Date; unread: boolean };
+type MailSummary = { uid: number; subject?: string; from?: string[]; date?: string; unread: boolean };
+type RequestBody = { id?: string | number | null; method: string; params?: { name?: string; arguments?: ToolArgs } };
 
 const tools = [
   { name: 'check_school_inbox', description: 'Fetch recent unread or latest school emails.', inputSchema: { type: 'object', properties: { unreadOnly: { type: 'boolean' }, limit: { type: 'number' } } } },
@@ -28,6 +29,13 @@ async function withMailbox<T>(fn: (c: ImapFlow) => Promise<T>): Promise<T> {
 
 function argNumber(args: ToolArgs, key: string, fallback: number): number { return typeof args[key] === 'number' ? args[key] as number : fallback; }
 function argString(args: ToolArgs, key: string): string | undefined { return typeof args[key] === 'string' ? args[key] as string : undefined; }
+function addressText(value: unknown): string | undefined {
+  if (!value) return undefined;
+  if (Array.isArray(value)) return value.map(addressText).filter((x): x is string => Boolean(x)).join(', ') || undefined;
+  if (typeof value === 'object' && value !== null && 'text' in value) return String((value as { text?: unknown }).text || '');
+  return undefined;
+}
+function isoDate(value: string | Date | undefined): string | undefined { return value ? new Date(value).toISOString() : undefined; }
 
 async function listMessages(args: ToolArgs): Promise<MailSummary[]> {
   const limit = Math.min(Math.max(argNumber(args, 'limit', 10), 1), 50);
@@ -35,7 +43,7 @@ async function listMessages(args: ToolArgs): Promise<MailSummary[]> {
     const range = args.unreadOnly === true ? 'UNSEEN' : '*';
     const rows: MailSummary[] = [];
     for await (const m of c.fetch(range, { uid: true, envelope: true, flags: true, internalDate: true }, { uid: true })) {
-      rows.push({ uid: m.uid, subject: m.envelope?.subject, from: m.envelope?.from?.map((x: { address?: string; name?: string }) => x.address || x.name || ''), date: m.internalDate, unread: !m.flags?.has('\\Seen') });
+      rows.push({ uid: m.uid, subject: m.envelope?.subject, from: m.envelope?.from?.map((x: { address?: string; name?: string }) => x.address || x.name || ''), date: isoDate(m.internalDate), unread: !m.flags?.has('\\Seen') });
     }
     return rows.slice(-limit).reverse();
   });
@@ -49,7 +57,7 @@ async function search(args: ToolArgs): Promise<MailSummary[]> {
     if (uids === false) return [];
     const selected = uids.slice(-Math.min(argNumber(args, 'limit', 25), 50)).reverse();
     const out: MailSummary[] = [];
-    for await (const m of c.fetch(selected, { uid: true, envelope: true, flags: true, internalDate: true }, { uid: true })) out.push({ uid: m.uid, subject: m.envelope?.subject, from: m.envelope?.from?.map((x: { address?: string; name?: string }) => x.address || x.name || ''), date: m.internalDate, unread: !m.flags?.has('\\Seen') });
+    for await (const m of c.fetch(selected, { uid: true, envelope: true, flags: true, internalDate: true }, { uid: true })) out.push({ uid: m.uid, subject: m.envelope?.subject, from: m.envelope?.from?.map((x: { address?: string; name?: string }) => x.address || x.name || ''), date: isoDate(m.internalDate), unread: !m.flags?.has('\\Seen') });
     return out;
   });
 }
@@ -61,7 +69,7 @@ async function read(args: ToolArgs): Promise<Record<string, unknown>> {
     const msg = await c.fetchOne(uid, { source: true, uid: true }, { uid: true });
     if (msg === false || !msg.source) throw new Error('Email not found');
     const parsed = await simpleParser(msg.source);
-    return { uid, subject: parsed.subject, from: parsed.from?.text, to: parsed.to?.text, date: parsed.date, text: parsed.text, html: parsed.html ? String(parsed.html) : undefined, attachments: parsed.attachments.map((a: { filename?: string; contentType: string; size: number }) => ({ filename: a.filename, contentType: a.contentType, size: a.size })) };
+    return { uid, subject: parsed.subject, from: addressText(parsed.from), to: addressText(parsed.to), date: isoDate(parsed.date), text: parsed.text, html: parsed.html ? String(parsed.html) : undefined, attachments: parsed.attachments.map((a: { filename?: string; contentType: string; size: number }) => ({ filename: a.filename, contentType: a.contentType, size: a.size })) };
   });
 }
 
@@ -76,7 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   res.setHeader('Access-Control-Allow-Origin', '*'); res.setHeader('Access-Control-Allow-Headers', 'content-type');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'POST required' }); return; }
-  const body: { id?: string | number | null; method: string; params?: { name?: string; arguments?: ToolArgs } } = typeof req.body === 'string' ? JSON.parse(req.body) as typeof body : req.body as typeof body;
+  const body: RequestBody = typeof req.body === 'string' ? JSON.parse(req.body) as RequestBody : req.body as RequestBody;
   const id = body.id ?? null;
   try {
     let result: unknown;
