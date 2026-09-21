@@ -2,7 +2,7 @@
   "name": "school-mail-mcp",
   "version": "1.0.0",
   "private": true,
-  "scripts": { "build": "tsc", "dev": "vercel dev" },
+  "scripts": { "build": "tsc", "start": "node dist/server.js", "dev": "vercel dev" },
   "dependencies": { "@modelcontextprotocol/sdk": "^1.12.0", "imapflow": "^1.0.181", "mailparser": "^3.7.3" },
-  "devDependencies": { "@types/mailparser": "^3.4.6", "@vercel/node": "^5.1.16", "typescript": "^5.8.3" }
+  "devDependencies": { "@types/mailparser": "^3.4.6", "@types/node": "^22.15.21", "@vercel/node": "^5.1.16", "typescript": "^5.8.3" }
 }
