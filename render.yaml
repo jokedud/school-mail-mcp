@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: school-mail-mcp
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: SCHOOL_EMAIL
+        sync: false
+      - key: SCHOOL_APP_PASSWORD
+        sync: false
+      - key: SCHOOL_IMAP_HOST
+        sync: false
+      - key: SCHOOL_IMAP_PORT
+        value: "993"
+      - key: SCHOOL_IMAP_MAILBOX
+        value: INBOX
